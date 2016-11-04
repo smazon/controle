@@ -3,12 +3,13 @@
 #include "conf_board.h"
 #include "conf_clock.h"
 #include "smc.h"
+#include "arm_math.h"
 
 /** Chip select number to be set */
 #define ILI93XX_LCD_CS      1
 
 struct ili93xx_opt_t g_ili93xx_display_opt;
-
+#define pi 3.14926
 #define PIN_PUSHBUTTON_1_MASK	PIO_PB3
 #define PIN_PUSHBUTTON_1_PIO	PIOB
 #define PIN_PUSHBUTTON_1_ID		ID_PIOB
@@ -44,6 +45,9 @@ static int16_t gs_s_adc_values[BUFFER_SIZE] = { 0 };
 /* GLOBAL                                                                */
 /************************************************************************/
 int adc_value_old;
+float v;
+int vet[30];
+float rad;
 
 /************************************************************************/
 /* HANDLER                                                              */
@@ -66,11 +70,34 @@ void ADC_Handler(void)
 	status = adc_get_status(ADC);
 	
 	/* Checa se a interrupção é devido ao canal 5 */
+	static float rad_antes = 0;
 	if ((status & ADC_ISR_EOC5)) {
 		tmp = adc_get_channel_value(ADC, ADC_POT_CHANNEL);
+
+			ili93xx_set_foreground_color(COLOR_WHITE);
+			ili93xx_draw_filled_rectangle(9, 39, ILI93XX_LCD_WIDTH,55);
+			v=3.3*((float)tmp)/4095.0;
+			rad=2*pi*((float)tmp)/4095.0;
+			ili93xx_draw_line(120,160,120+54*arm_cos_f32(rad_antes),160+54*arm_sin_f32(rad_antes));
+			ili93xx_set_foreground_color(COLOR_BLACK);
+			sprintf(vet, "Tensao: %f", v);
+			ili93xx_draw_string(10, 40, vet);
+			ili93xx_draw_line(120,160,120+54*arm_cos_f32(rad),160+54*arm_sin_f32(rad));
+			rad_antes = rad;
+
 	}
+	
+
+	
 }
 
+void TC0_Handler(void)
+{	static b = 0;
+	volatile uint32_t ul_dummy;
+	ul_dummy = tc_get_status(TC0,0);
+	adc_start(ADC);
+
+}
 /************************************************************************/
 /* CONFIGs                                                              */
 /************************************************************************/
@@ -133,7 +160,141 @@ void configure_botao(void)
 	NVIC_EnableIRQ((IRQn_Type) PIN_PUSHBUTTON_1_ID);
 }
 
+static void configure_tc(void)
+{
+	/****************************************************************
+	* Devemos indicar ao TC que a interrupção foi satisfeita.
+	******************************************************************/
+	
+	// [main_tc_configure]
+	/*
+	* Aqui atualizamos o clock da cpu que foi configurado em sysclk init
+	*
+	* O valor atual est'a em : 120_000_000 Hz (120Mhz)
+	*/
+	uint32_t ul_sysclk = sysclk_get_cpu_hz();
+	
+	/****************************************************************
+	* Ativa o clock do periférico TC 0
+	*****************************************************************
+	*
+	* Parametros :
+	*  1 - ID do periferico
+	*
+	*
+	*****************************************************************/
+	pmc_enable_periph_clk(ID_TC0);
 
+	/*****************************************************************
+	* Configura TC para operar no modo de comparação e trigger RC
+	*****************************************************************
+	*
+	* Configura TC para operar no modo de comparação e trigger RC
+	* devemos nos preocupar com o clock em que o TC irá operar !
+	*
+	* Cada TC possui 3 canais, escolher um para utilizar.
+	*
+	* No nosso caso :
+	
+	*
+	*	MCK		= 120_000_000
+	*	SLCK	= 32_768		(rtc)
+	*
+	* Uma opção para achar o valor do divisor é utilizar a funcao, como ela
+	* funciona ?
+	* tc_find_mck_divisor()
+	*
+	*
+	* Parametros
+	*   1 - TC a ser configurado (TC0,TC1, ...)
+	*   2 - Canal a ser configurado (0,1,2)
+	*   3 - Configurações do TC :
+	*
+	*	* Configurações de modo de operação :
+	*	    TC_CMR_ABETRG  : TIOA or TIOB External Trigger Selection
+	*	    TC_CMR_CPCTRG  : RC Compare Trigger Enable
+	*	    TC_CMR_WAVE    : Waveform Mode
+	*
+	*     Configurações de clock :
+	*	    TC_CMR_TCCLKS_TIMER_CLOCK1 : Clock selected: internal MCK/2 clock signal
+	*	    TC_CMR_TCCLKS_TIMER_CLOCK2 : Clock selected: internal MCK/8 clock signal
+	*	    TC_CMR_TCCLKS_TIMER_CLOCK3 : Clock selected: internal MCK/32 clock signal
+	*	    TC_CMR_TCCLKS_TIMER_CLOCK4 : Clock selected: internal MCK/128 clock signal
+	*	    TC_CMR_TCCLKS_TIMER_CLOCK5 : Clock selected: internal SLCK clock signal
+	*
+	*****************************************************************/
+	tc_init(TC0, 0, TC_CMR_CPCTRG | TC_CMR_TCCLKS_TIMER_CLOCK5);
+	
+	/*****************************************************************
+	* Configura valor trigger RC
+	*****************************************************************
+	*
+	* Aqui devemos configurar o valor do RC que vai trigar o reinicio da contagem
+	* devemos levar em conta a frequência que queremos que o TC gere as interrupções
+	* e tambem a frequencia com que o TC está operando.
+	*
+	* Devemos configurar o RC para o mesmo canal escolhido anteriormente.
+	*
+	*   ^
+	*	|	Contador (incrementado na frequencia escolhida do clock)
+	*   |
+	*	|	 	Interrupcao
+	*	|------#----------- RC
+	*	|	  /
+	*	|   /
+	*	| /
+	*	|-----------------> t
+	*
+	* Parametros :
+	*   1 - TC a ser configurado (TC0,TC1, ...)
+	*   2 - Canal a ser configurado (0,1,2)
+	*   3 - Valor para trigger do contador (RC)
+	*****************************************************************/
+	tc_write_rc(TC0,0,32768*0.1);
+	
+	/*****************************************************************
+	* Configura interrupção no TC
+	*****************************************************************
+	* Parametros :
+	*   1 - TC a ser configurado
+	*   2 - Canal
+	*   3 - Configurações das interrupções
+	*
+	*        Essas configurações estão definidas no head : tc.h
+	*
+	*	        TC_IER_COVFS : 	Counter Overflow
+	*	        TC_IER_LOVRS : 	Load Overrun
+	*	        TC_IER_CPAS  : 	RA Compare
+	*	        TC_IER_CPBS  : 	RB Compare
+	*	        TC_IER_CPCS  : 	RC Compare
+	*	        TC_IER_LDRAS : 	RA Loading
+	*	        TC_IER_LDRBS : 	RB Loading
+	*	        TC_IER_ETRGS : 	External Trigger
+	*****************************************************************/
+	tc_enable_interrupt(TC0,0,TC_IER_CPCS);
+	
+	/*****************************************************************
+	* Ativar interrupção no NVIC*/
+	
+	
+	NVIC_EnableIRQ(ID_TC0);
+	
+	/*****************************************************************
+	* Inicializa o timer
+	*****************************************************************
+	*
+	* Parametros :
+	*   1 - TC
+	*   2 - Canal
+	*****************************************************************/
+	tc_start(TC0,0);
+
+
+	/************************************************************************/
+	/* Main Code
+	*/
+	/************************************************************************/
+}
 void configure_adc(void)
 {
 	/* Enable peripheral clock. */
@@ -196,10 +357,15 @@ int main(void)
 	configure_lcd();
 	configure_botao();
 	configure_adc();
+	configure_tc();
+
 
 	/** Draw text, image and basic shapes on the LCD */
 	ili93xx_set_foreground_color(COLOR_BLACK);
 	ili93xx_draw_string(10, 20, (uint8_t *)"14 - ADC");
+	ili93xx_draw_filled_circle(120,160,60);
+	ili93xx_set_foreground_color(COLOR_WHITE);
+	ili93xx_draw_filled_circle(120,160,55);
 
 	while (1) {
 	}
