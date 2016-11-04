@@ -52,9 +52,20 @@
  * running the ASF driver selector tool. Any changes will be discarded.
  */
 
+// From module: ADC - Analog-to-digital Converter
+#include <adc.h>
+
 // From module: Common SAM compiler driver
 #include <compiler.h>
 #include <status_codes.h>
+
+// From module: Display - AAT31XX Backlight Controller
+#include <aat31xx.h>
+
+// From module: Display - ILI93xx LCD Controller
+#include <ili9325_regs.h>
+#include <ili9341_regs.h>
+#include <ili93xx.h>
 
 // From module: GPIO - General purpose Input/Output
 #include <gpio.h>
@@ -75,20 +86,23 @@
 #include <pmc.h>
 #include <sleep.h>
 
-// From module: PWM - Pulse Width Modulation
-#include <pwm.h>
-
 // From module: Part identification macros
 #include <parts.h>
 
 // From module: SAM4S-EK2 LED support enabled
 #include <led.h>
 
+// From module: SMC - Static Memory Controller
+#include <smc.h>
+
 // From module: Standard serial I/O (stdio) - SAM implementation
 #include <stdio_serial.h>
 
 // From module: System Clock Control - SAM4S implementation
 #include <sysclk.h>
+
+// From module: TC - Timer Counter
+#include <tc.h>
 
 // From module: UART - Univ. Async Rec/Trans
 #include <uart.h>
