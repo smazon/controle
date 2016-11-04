@@ -36,10 +36,13 @@ struct ili93xx_opt_t g_ili93xx_display_opt;
 /** The maximal digital value */
 #define MAX_DIGITAL     (4095)
 
+
+
+
 /** adc buffer */
 static int16_t gs_s_adc_values[BUFFER_SIZE] = { 0 };
 
-#define ADC_POT_CHANNEL 5
+#define PIN_ADC_IN 17
 
 /************************************************************************/
 /* GLOBAL                                                                */
@@ -69,10 +72,10 @@ void ADC_Handler(void)
 
 	status = adc_get_status(ADC);
 	
-	/* Checa se a interrupção é devido ao canal 5 */
+	/* Checa se a interrupção é devido ao canal 17 */
 	static float rad_antes = 0;
-	if ((status & ADC_ISR_EOC5)) {
-		tmp = adc_get_channel_value(ADC, ADC_POT_CHANNEL);
+	
+		tmp = adc_get_channel_value(ADC, 0);
 
 			ili93xx_set_foreground_color(COLOR_WHITE);
 			ili93xx_draw_filled_rectangle(9, 39, ILI93XX_LCD_WIDTH,55);
@@ -83,12 +86,7 @@ void ADC_Handler(void)
 			sprintf(vet, "Tensao: %f", v);
 			ili93xx_draw_string(10, 40, vet);
 			ili93xx_draw_line(120,160,120+54*arm_cos_f32(rad),160+54*arm_sin_f32(rad));
-			rad_antes = rad;
-
-	}
-	
-
-	
+			rad_antes = rad;	
 }
 
 void TC0_Handler(void)
@@ -326,7 +324,7 @@ void configure_adc(void)
 	//adc_check(ADC, sysclk_get_cpu_hz());
 
 	/* Enable channel for potentiometer. */
-	adc_enable_channel(ADC, ADC_POT_CHANNEL);
+	adc_enable_channel(ADC, 0);
 
 	/* Enable the temperature sensor. */
 	adc_enable_ts(ADC);
@@ -342,7 +340,7 @@ void configure_adc(void)
 	//adc_get_channel_value(ADC, ADC_POT_CHANNEL);
 
 	/* Enable PDC channel interrupt. */
-	adc_enable_interrupt(ADC, ADC_ISR_EOC5);
+	adc_enable_interrupt(ADC, ADC_ISR_EOC0);
 }
 
 /************************************************************************/
@@ -356,6 +354,10 @@ int main(void)
 
 	configure_lcd();
 	configure_botao();
+	
+	PIOA->PIO_ODR = (1 << 17) ;
+
+	
 	configure_adc();
 	configure_tc();
 
